@@ -8,21 +8,25 @@ num_epochs = 10
 batch_size = 32
 learning_rate = 0.001
 data_dir = './cats_vs_dogs'
-train_file = data_dir + '/train/train.tfrecords'
-test_file = data_dir + '/test/test.tfrecords'
+train_cats_dir = data_dir + '/train/cats/'
+train_dogs_dir = data_dir + '/train/dogs/'
+test_cats_dir = data_dir + '/test/cats/'
+test_dogs_dir = data_dir + '/test/dogs/'
 
-def _decode_and_resize(example_string):
-    feature_dict = tf.io.parse_single_example(example_string, feature_description)
-    image_decoded = tf.image.decode_jpeg(feature_dict['image'])
+def _decode_and_resize(filename, label):
+    image_string = tf.io.read_file(filename)
+    image_decoded = tf.image.decode_jpeg(image_string)
     image_resized = tf.image.resize(image_decoded, [256, 256])/255.0
-    label = feature_dict['label']
     return image_resized, label
-feature_description = {
-    'image': tf.io.FixedLenFeature([], tf.string),
-    'label': tf.io.FixedLenFeature([], tf.int64)
-}
 if __name__ == '__main__':
-    train_dataset = tf.data.TFRecordDataset(train_file)
+    train_cats_files = tf.constant([train_cats_dir+filename for filename in os.listdir(train_cats_dir)])
+    train_dogs_files = tf.constant([train_dogs_dir + filename for filename in os.listdir(train_dogs_dir)])
+    train_filenames = tf.concat([train_cats_files, train_dogs_files], axis=-1)
+    train_labels = tf.concat([
+        tf.zeros(train_cats_files.shape, dtype=tf.int32),
+        tf.ones(train_dogs_files.shape, dtype=tf.int32)
+    ], axis=-1)
+    train_dataset = tf.data.Dataset.from_tensor_slices((train_filenames, train_labels))
     train_dataset = train_dataset.map(
         map_func=_decode_and_resize,
         num_parallel_calls=tf.data.experimental.AUTOTUNE
@@ -31,7 +35,14 @@ if __name__ == '__main__':
     train_dataset = train_dataset.batch(batch_size)
     train_dataset = train_dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
-    test_dataset = tf.data.TFRecordDataset(test_file)
+    test_cats_files = tf.constant([test_cats_dir+filename for filename in os.listdir(test_cats_dir)])
+    test_dogs_files = tf.constant([test_dogs_dir + filename for filename in os.listdir(test_dogs_dir)])
+    test_filenames = tf.concat([test_cats_files, test_dogs_files], axis=-1)
+    test_labels = tf.concat([
+        tf.zeros(test_cats_files.shape, dtype=tf.int32),
+        tf.ones(test_dogs_files.shape, dtype=tf.int32)
+    ], axis=-1)
+    test_dataset = tf.data.Dataset.from_tensor_slices((test_filenames, test_labels))
     test_dataset = test_dataset.map(
         map_func=_decode_and_resize,
         num_parallel_calls=tf.data.experimental.AUTOTUNE
@@ -45,6 +56,7 @@ if __name__ == '__main__':
         tf.keras.layers.MaxPooling2D(),
         tf.keras.layers.Flatten(),
         tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.Dropout(0.5),
         tf.keras.layers.Dense(2, activation='softmax')
     ])
     model.compile(
